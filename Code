@@ -1,0 +1,155 @@
+import os
+import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
+import nltk
+from nltk.tokenize import word_tokenize
+import sys
+import pyramses
+from networkx import *
+import math
+import numpy.linalg
+
+
+In [2]:
+def GraphCreate(Filenames,inv=False):
+    G = nx.DiGraph()
+    for file in Filenames:  
+        f = [line.rstrip('\n') for line in open(file)]
+        for line in f: 
+            res = word_tokenize(line)
+            if len(res)>0:
+                if (res[0]=="BUS"):
+                    G.add_node(res[1],Volt=float(res[2]))
+                elif (res[0]=="LINE"):                   
+                    if inv:
+                        G.add_edge(res[3],res[2],Z=(float(res[4])**2+float(res[5])**2)**(0.5),branchName=res[1])
+                    else:
+                        G.add_edge(res[2],res[3],Z=(float(res[4])**2+float(res[5])**2)**(0.5),branchName=res[1])
+                elif (res[0]=="TRFO"):
+                    if inv:
+                        G.add_edge(res[3],res[2],Z=float(res[7]),branchName=res[1])
+                    else:
+                        G.add_edge(res[2],res[3],Z=float(res[7]),branchName=res[1])
+                    
+    return G
+    
+    
+In [3]:
+def GraphVisualize(G,Volts):
+    positions = nx.spring_layout(G, k=5*1/np.sqrt(len(G.nodes())))
+    edges = G.edges()
+    Zs=nx.get_edge_attributes(G,'Z')
+    nodes = G.nodes()
+    node_Volts=[]
+    print (Volts.values)
+    for n in Volts.values(): 
+        if float(n) < 0.8 :
+             node_Volts.append('grey')
+        elif float(n) < 0.9 :
+             node_Volts.append('blue')
+        elif float(n) < 1.1:
+            node_Volts.append('green')
+        else:
+            node_Volts.append('red') 
+    plt.figure(figsize=(7,7))
+    nx.draw(G, pos=positions, hold=True, node_size=300, with_labels=True,node_color=node_Volts)
+    nx.draw_networkx_edges(G, pos=positions, length=Zs, width=2,overlap= False)
+    plt.show()
+    
+    return G
+    
+    
+In [4]:
+def GraphUpdate(G, newVolt,power): 
+    Dict=dict(zip(G.nodes(),newVolt))
+    nx.set_node_attributes(G, values=Dict, name='Volt')
+    Dict1=dict(zip(G.edges(),power))
+    nx.set_edge_attributes(G, values=Dict1, name='power')
+    
+    
+In [5]:
+def WeightCalculate(G):
+    Volts=nx.get_node_attributes(G,'Volt')
+    branchName=nx.get_edge_attributes(G,'branchName')
+    ram.execSim(case, 100.0)
+    branchName=branchName.values()
+    Power=ram.getBranchPow(branchName) 
+    p_orig=[float(i[0]) for i in Power]
+    q_orig=[float(i[1]) for i in Power]
+    p_extr=[float(i[2]) for i in Power]
+    q_extr=[float(i[3]) for i in Power] 
+    
+    return p_orig, q_orig,p_extr, q_extr
+    
+    
+In [6]:
+def testing(G, G1, G2, G3):
+    
+    #max and min eigenvalue
+    L = nx.directed_laplacian_matrix(G1, nodelist=G1.nodes, weight='power')
+    e = numpy.linalg.eigvals(L.A)
+    Max=max(e)
+    Min=min(e)
+    
+    return Max, Min,e
+    
+    
+In [7]:
+ram = pyramses.sim()
+case = pyramses.cfg('cmd.txt')
+case.addRunObs('BV g1')
+ram.execSim(case,0.0)
+Filenames = ["dyn_A.dat", "volt_rat_A.dat"]
+newGraph=GraphCreate(Filenames)
+newGraph1=GraphCreate(Filenames)
+newGraph2=GraphCreate(Filenames,inv=True)
+newGraph3=GraphCreate(Filenames,inv=True)
+busnames = ram.getAllCompNames("BUS")
+
+f0 = []
+f01=[]
+fm = []
+fn=[]
+
+for i in range(1,200):
+    newVolt = ram.getBusVolt(busnames)
+    p_orig, q_orig,p_extr, q_extr= WeightCalculate(newGraph)
+    
+    GraphUpdate(newGraph, newVolt,p_orig)
+    GraphUpdate(newGraph1, newVolt,q_orig)
+    GraphUpdate(newGraph2, newVolt,p_extr)
+    GraphUpdate(newGraph3, newVolt,q_extr)
+    print('Updating {}'.format(i))
+    
+    Volts=nx.get_node_attributes(newGraph,'Volt')
+    Volts=nx.get_node_attributes(newGraph1,'Volt')
+    Volts=nx.get_node_attributes(newGraph2,'Volt')
+    Volts=nx.get_node_attributes(newGraph3,'Volt')
+    p_orig=nx.get_edge_attributes(newGraph,'power')
+    q_orig=nx.get_edge_attributes(newGraph1,'power')
+    p_extr=nx.get_edge_attributes(newGraph2,'power')
+    q_extr=nx.get_edge_attributes(newGraph3,'power')
+   
+  
+    #GraphVisualize(newGraph,Volts)
+    Max, Min,e =testing(newGraph,newGraph1,newGraph2,newGraph3)
+    
+    f0.append(['Updating {}'.format(i),Max])
+    f01.append(['Updating {}'.format(i),Min])
+    fm.append(Max)
+    fn.append(Min)
+    print('The distribution of eigenvalue:')
+    plt.figure(figsize=[7,7])
+    X = [x.real for x in e]
+    Y = [x.imag for x in e]
+    plt.scatter(X,Y, color='g')
+    plt.show()
+    print("\n")
+    
+    plt.pause(1)
+    try:
+        ram.contSim(i)
+    except:
+        print("\n")
+        print("An Error occurred") 
