@@ -1,3 +1,4 @@
+In [1]:
 import os
 import numpy as np
 import networkx as nx
@@ -9,6 +10,7 @@ import pyramses
 from networkx import *
 import math
 import numpy.linalg
+
 
 
 In [2]:
@@ -35,9 +37,9 @@ def GraphCreate(Filenames,inv=False):
     return G
     
     
+    
 In [3]:
-def GraphVisualize(G,Volts):
-    positions = nx.spring_layout(G, k=5*1/np.sqrt(len(G.nodes())))
+def GraphVisualize(positions,G,Volts,i):
     edges = G.edges()
     Zs=nx.get_edge_attributes(G,'Z')
     nodes = G.nodes()
@@ -45,19 +47,21 @@ def GraphVisualize(G,Volts):
     print (Volts.values)
     for n in Volts.values(): 
         if float(n) < 0.8 :
-             node_Volts.append('grey')
+             node_Volts.append('red')
         elif float(n) < 0.9 :
              node_Volts.append('blue')
         elif float(n) < 1.1:
             node_Volts.append('green')
         else:
-            node_Volts.append('red') 
-    plt.figure(figsize=(7,7))
+            node_Volts.append('grey') 
+    plt.figure(figsize=(10,10))
     nx.draw(G, pos=positions, hold=True, node_size=300, with_labels=True,node_color=node_Volts)
     nx.draw_networkx_edges(G, pos=positions, length=Zs, width=2,overlap= False)
-    plt.show()
+    plt.title('Updating.'+str(i), fontsize=14, fontweight='bold')
+    plt.savefig('Number.'+str(i)+'.png')
     
     return G
+    
     
     
 In [4]:
@@ -66,6 +70,7 @@ def GraphUpdate(G, newVolt,power):
     nx.set_node_attributes(G, values=Dict, name='Volt')
     Dict1=dict(zip(G.edges(),power))
     nx.set_edge_attributes(G, values=Dict1, name='power')
+    
     
     
 In [5]:
@@ -83,16 +88,37 @@ def WeightCalculate(G):
     return p_orig, q_orig,p_extr, q_extr
     
     
+    
 In [6]:
 def testing(G, G1, G2, G3):
     
-    #max and min eigenvalue
-    L = nx.directed_laplacian_matrix(G1, nodelist=G1.nodes, weight='power')
+    #Compute the eigenvalue based on laplacian matrix
+    #When call the testing function, only choose one from four of them: G, G1, G2, G3
+    L = nx.directed_laplacian_matrix(G, nodelist=G.nodes, weight='power')
+    #L = nx.directed_laplacian_matrix(G1, nodelist=G1.nodes, weight='power')
+    #L = nx.directed_laplacian_matrix(G2, nodelist=G2.nodes, weight='power')
+    #L = nx.directed_laplacian_matrix(G3, nodelist=G3.nodes, weight='power')
     e = numpy.linalg.eigvals(L.A)
     Max=max(e)
     Min=min(e)
     
-    return Max, Min,e
+    #Calculate the eigemvaector centrality
+    #When call the testing function, only choose one from four of them: G, G1, G2, G3
+    centrality = nx.eigenvector_centrality_numpy(G,weight='power')
+    #centrality = nx.eigenvector_centrality_numpy(G1,weight='power')
+    #centrality = nx.eigenvector_centrality_numpy(G2,weight='power')
+    #centrality = nx.eigenvector_centrality_numpy(G3,weight='power')
+    Centrality=['{} {:0.2f}'.format(node, centrality[node]) for node in centrality]
+    
+    #Compute the pagerank value for each node
+    #When call the testing function, only choose one from four of them: G, G1, G2, G3
+    pr = nx.pagerank_numpy(G,alpha=0.85, weight='power')
+    #pr = nx.pagerank_numpy(G1,alpha=0.85, weight='power')
+    #pr = nx.pagerank_numpy(G2,alpha=0.85, weight='power')
+    #pr = nx.pagerank_numpy(G3,alpha=0.85, weight='power')
+    
+    return Max, Min, e, centrality, pr
+    
     
     
 In [7]:
@@ -107,6 +133,10 @@ newGraph2=GraphCreate(Filenames,inv=True)
 newGraph3=GraphCreate(Filenames,inv=True)
 busnames = ram.getAllCompNames("BUS")
 
+a=np.random.rand(74)
+
+positions = nx.spring_layout(newGraph, k=5*1/np.sqrt(len(newGraph.nodes())))
+
 f0 = []
 f01=[]
 fm = []
@@ -120,7 +150,6 @@ for i in range(1,200):
     GraphUpdate(newGraph1, newVolt,q_orig)
     GraphUpdate(newGraph2, newVolt,p_extr)
     GraphUpdate(newGraph3, newVolt,q_extr)
-    print('Updating {}'.format(i))
     
     Volts=nx.get_node_attributes(newGraph,'Volt')
     Volts=nx.get_node_attributes(newGraph1,'Volt')
@@ -131,21 +160,53 @@ for i in range(1,200):
     p_extr=nx.get_edge_attributes(newGraph2,'power')
     q_extr=nx.get_edge_attributes(newGraph3,'power')
    
-  
-    #GraphVisualize(newGraph,Volts)
-    Max, Min,e =testing(newGraph,newGraph1,newGraph2,newGraph3)
+    GraphVisualize(positions,newGraph,Volts, i)
+    
+    Max, Min, e, centrality, pr =testing(newGraph,newGraph1,newGraph2,newGraph3)
+    
+    pr_array = np.array(list(pr.values()))
+    b=a * pr_array
+    count = 0
+    for number in b:
+        if number < 0:
+            count += 1    
+    a=pr_array    
+    if (count>=70):
+        print ('alarming')
+        print("\n")
     
     f0.append(['Updating {}'.format(i),Max])
     f01.append(['Updating {}'.format(i),Min])
     fm.append(Max)
     fn.append(Min)
+    
+    #The bar chart of eigenvector centrality
+    print("\n")
+    print(' The plot of eigenvector centrality:')
+    plt.figure(figsize=[35,5])
+    plt.bar(range(len(centrality)), list(centrality.values()), align='center')
+    plt.xticks(range(len(centrality)), list(centrality.keys()))
+    plt.title('Centrality Updating.'+str(i), fontsize=30, fontweight='bold')
+    plt.savefig('Number.'+str(i)+'.png', dpi=100)
+    
+    #The bar chart of Page rank
+    print("\n")
+    print(' PageRank of the nodes in the graph:')
+    plt.figure(figsize=[35,5])
+    plt.bar(range(len(pr)), list(pr.values()), align='center')
+    plt.xticks(range(len(pr)), list(pr.keys()))
+    plt.title('Page rank Updating.'+str(i), fontsize=30, fontweight='bold')
+    plt.savefig('Number.'+str(i)+'.png', dpi=100)
+    
+    #The scattered plot of eigenvalue
     print('The distribution of eigenvalue:')
     plt.figure(figsize=[7,7])
     X = [x.real for x in e]
     Y = [x.imag for x in e]
     plt.scatter(X,Y, color='g')
-    plt.show()
     print("\n")
+    plt.title('Updating.'+str(i), fontsize=14, fontweight='bold')
+    plt.savefig('Number.'+str(i)+'.png')
     
     plt.pause(1)
     try:
@@ -153,3 +214,35 @@ for i in range(1,200):
     except:
         print("\n")
         print("An Error occurred") 
+    
+#The data list of Largest eigenvalue and Smallest eigenvalue
+print("\n")
+print('The Largest eigenvalue:')
+print(f0)
+print("\n")
+print('The Smallest eigenvalue:')
+print(f01)
+
+#The plot to show the largest eigenvalue movement track
+print("\n")
+print('The change of largest eigenvalue:')
+X = [x.real for x in fm]
+Y = [x.imag for x in fm]
+n=list(range(1, 200))
+fig, ax = plt.subplots(figsize=[35,7])
+ax.scatter(X, Y)
+for i, txt in enumerate(n):
+    ax.annotate(txt, (X[i], Y[i]))   
+plt.savefig('LE.png')
+
+#The plot to show the smallest eigenvalue movement track
+print("\n")
+print('The change of smallest eigenvalue:')
+X = [x.real for x in fn]
+Y = [x.imag for x in fn]
+n=list(range(1, 200))
+fig, ax = plt.subplots(figsize=[35,7])
+ax.scatter(X, Y)
+for i, txt in enumerate(n):
+    ax.annotate(txt, (X[i], Y[i]))   
+plt.savefig('SE.png')
